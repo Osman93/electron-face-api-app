@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html>
+<head>
+	<title>Face Api</title>
+  <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/3.4.1/css/bootstrap.min.css" integrity="sha384-HSMxcRTRxnN+Bdg0JdbxYKrThecOKuH5zCYotlSAcp1+c8xmyTe9GYg1l9a69psu" crossorigin="anonymous">
+	<style>
+		.btnX{
+       margin-top: 10px;
+       margin-bottom: 10px;
+
+       background: #515de8!important;
+       border-radius: 20px!important;
+    }
+
+	</style>
+</head>
+<body>
+<center class="col-xs-12" style="background: #515de8;height: 100px">
+  <a href="http://on-csoft.com/tr" target="_blank">
+    <img src="http://on-csoft.com/oncLogo.png" alt="" style="width: 130px;height: 60px;object-fit: contain;display: block;margin:auto">
+  </a>
+  <span style="color:white">ONC Face Detection App</span>
+</center>
+
+<div class="container-fluid">
+  <div class="row col-xs-12">
+      <div class="col-xs-6">
+        <button class="btn btn-danger col-xs-12 btnX" id="train">Yüzü Tanıt</button>
+      </div>
+      <div class="col-xs-6">
+        <button class="btn btn-danger col-xs-12 btnX" id="operation">İşlem Yap</button>
+      </div>
+  </div>
+</div>
+
+
+<div class="container train" style="display: none">
+  <div class="row">
+    <input id="train_name" class="col-xs-12 form-control" placeholder="İsmini Girin">    
+
+    <input id="train_files" class="col-xs-12 form-control" type="file" multiple="true" />
+    <br>
+    <button id="btnTrain" class="btn btn-block btn-success">Yüzü Train Et</button>
+  </div>
+</div>
+
+
+<div class="container operation" style="display: none">
+  <div class="row">
+    <video id="video" width="360" height="280" autoplay muted></video>
+    <button  onclick="startVideo();" class="btn btn-block btn-primary" id="videoAc">Video Aç</button>
+    <input id="inputFileToLoad" type="file" class="col-xs-12 form-control" onchange="encodeImageFileAsURL();"  />
+    <div id="imgTest"></div>
+  </div>
+</div>
+</body>
+<script>
+const faceapi = require("face-api.js");
+require('@tensorflow/tfjs-node');
+const { ipcRenderer } = require('electron')
+//require("@tensorflow/tfjs-node-gpu");
+const fs = require("fs");
+let $ = require("jquery");
+const path = require("path");
+const canvas = require("canvas");
+const process = require("child_process");
+
+let faceMatcher = null;
+
+
+
+function startVideo() {
+	const video = document.querySelector('video')
+  	navigator.getUserMedia({video: true, audio: false}, (localMediaStream) => {
+        var video = document.querySelector('video')
+        video.srcObject = localMediaStream
+        video.autoplay = true
+     }, (e) => {})
+  	var control = "";
+  	video.addEventListener('playing', () => {
+  	//create the canvas from video element as we have created above
+	  const canvas = faceapi.createCanvasFromMedia(video);
+	  //append canvas to body or the dom element where you want to append it
+	  document.body.append(canvas)
+	  // displaySize will help us to match the dimension with video screen and accordingly it will draw our detections
+	  // on the streaming video screen
+	 
+	  const displaySize = { width: video.width, height: video.height }
+	  faceapi.matchDimensions(canvas, displaySize)	
+
+	  setTimeout( async() => {
+	  		const detections = await faceapi.detectSingleFace(video).withFaceLandmarks().withFaceDescriptor();
+	    	//const resizedDetections = faceapi.resizeResults(detections, displaySize)
+		    canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height)
+		    //faceapi.draw.drawFaceLandmarks(canvas, resizedDetections)
+		    this.labeledFaceDescriptors = await this.loadLabeledImages()
+		    const faceMatcher = new faceapi.FaceMatcher(labeledFaceDescriptors, 0.6)
+		    if(detections){
+		    	const results = faceMatcher.findBestMatch(detections.descriptor);
+		    	console.log(results);
+			    if(results){		
+			    	ipcRenderer.send("ok",results.label);
+			    	deleteVideo();
+			    }	
+		    }else{
+		    	ipcRenderer.send("fail","");
+		    	
+			    deleteVideo();
+		    }
+
+	  },1000)
+	    
+	    
+	  
+	})
+}
+
+function deleteVideo(){
+	document.querySelector('canvas').remove();
+	document.querySelector('video').remove();
+
+  var html = '<video id="video" width="360" height="280" autoplay muted></video>';
+  $("#videoAc").before(html);
+
+}
+//startVideo();
+
+
+
+faceapi.env.monkeyPatch({
+	Canvas: HTMLCanvasElement,
+	Image: HTMLImageElement,
+	ImageData: ImageData,
+	Video: HTMLVideoElement,
+	createCanvasElement: () => document.createElement('canvas'),
+	createImageElement: () => document.createElement('img')
+})
+async function train() {
+	var trainingDir = "./faces";
+    // Load required models
+    await faceapi.nets.ssdMobilenetv1.loadFromDisk('models');
+    await faceapi.nets.faceLandmark68Net.loadFromDisk('models');
+    await faceapi.nets.faceRecognitionNet.loadFromDisk('models');
+    await faceapi.nets.tinyFaceDetector.loadFromDisk("models");
+    // Traverse the training dir and get all classes (1 dir = 1 class)
+    const classes = fs.readdirSync(trainingDir, { withFileTypes: true })
+        .filter(i => i.isDirectory())
+        .map(i => i.name);
+    console.info(`Found ${classes.length} different persons to learn.`);
+
+    const faceDescriptors = await Promise.all(classes.map(async className => {
+        
+        const images = fs.readdirSync(path.join(trainingDir, className), { withFileTypes: true })
+            .filter(i => i.isFile())
+            .map(i => path.join(trainingDir, className, i.name));
+
+        // Load all images for this class and retrieve face descriptors
+        const descriptors = await Promise.all(images.map(async path => {
+        	console.log(path);
+        	
+        		var image = document.createElement("img");
+	        	image.src = path;
+	            const img = image;
+	            return await faceapi.computeFaceDescriptor(img);
+        	
+        }));
+        
+        return new faceapi.LabeledFaceDescriptors(className, descriptors);
+    }));
+
+    console.log(faceDescriptors);
+    //return new faceapi.FaceMatcher(faceDescriptors);
+}
+
+
+
+function encodeImageFileAsURL() {
+
+    var filesSelected = document.getElementById("inputFileToLoad").files;
+    if (filesSelected.length > 0) {
+      var fileToLoad = filesSelected[0];
+
+      var fileReader = new FileReader();
+
+      fileReader.onload = function(fileLoadedEvent) {
+        var srcData = fileLoadedEvent.target.result; // <--- data: base64
+
+        var newImage = document.createElement('img');
+        newImage.src = srcData;
+
+        document.getElementById("imgTest").innerHTML = newImage.outerHTML;
+        //alert("Converted Base64 version is " + document.getElementById("imgTest").innerHTML);
+        //console.log("Converted Base64 version is " + document.getElementById("imgTest").innerHTML);
+      	detect(newImage);
+      }
+      fileReader.readAsDataURL(fileToLoad);
+    }
+  }
+
+function loadLabeledImages() {
+    var dir = "faces";
+    const labels = fs.readdirSync(dir)
+    //const labels = ['Osman-Asar','Nursel-Asar','Beyza-Kaynak','Caner-Ozkan'];
+    return Promise.all(
+      labels.map(async label => {
+        const descriptions = []
+        for (let i = 1; i <= 3; i++) {
+          const img = await faceapi.fetchImage(`faces/${label}/${i}.png`)
+          const detections = await faceapi.detectSingleFace(img).withFaceLandmarks().withFaceDescriptor()
+          descriptions.push(detections.descriptor)
+        }
+        //console.log("Labeled Images Loaded")
+        //console.log(descriptions);
+        return new faceapi.LabeledFaceDescriptors(label, descriptions)
+      })
+    )
+  }
+
+
+async function detect(data){
+	
+	 const labeledFaceDescriptors = await loadLabeledImages()
+    faceMatcher = new faceapi.FaceMatcher(labeledFaceDescriptors,0.6)
+    const results = await faceapi
+        .detectAllFaces(data)
+        .withFaceLandmarks()
+        .withFaceDescriptors();
+
+    console.info(`${results.length} face(s) detected`);
+
+    // Create canvas to save to disk
+    const out = faceapi.createCanvasFromMedia(data);
+    results.forEach(({detection, descriptor}) => {
+        const label = faceMatcher.findBestMatch(descriptor).toString();
+        console.info(`Detected face: ${label}`);
+
+        const drawBox = new faceapi.draw.DrawBox(detection.box, { label });
+        drawBox.draw(out)
+    });
+
+   
+
+}
+
+async function start() {
+  faceMatcher = await train();
+  console.info("Finished training");
+  
+}
+
+start();
+
+
+$("#btnTrain").click(function(event) {
+  var dir = "faces";
+  const folder = fs.readdirSync(dir)
+  console.log(folder);
+
+
+
+  var files = $("#train_files")[0].files;
+  var name = $("#train_name").val();
+  var files_length = files.length;
+  console.log(name);
+  console.log(files);
+  console.log(files_length);
+  console.log(files[0].path);
+
+  if(files_length == 3 && name != ""){
+      try{
+        process.execSync('mkdir "faces/'+name+'"');
+      } catch (error) {
+         alert("Bu isim kullanılmıştır");
+         process.execSync("find . -name '.DS_Store' -type f -delete");
+         window.location.reload();
+      }
+      var i = 0;
+      for(i;i<=2;i++){
+        process.execSync('cp "'+files[i].path+'" "faces/'+name+'/'+(i + 1)+'.png"');
+      }
+      process.execSync("find . -name '.DS_Store' -type f -delete");
+      window.location.reload();
+  }else{
+    alert("Lütfen 3 adet resim ve isim giriniz");
+  }
+  
+
+
+});
+
+
+$("#train").click(function(event) {
+  /* Act on the event */
+  $(".operation").hide("slow");
+  $(".train").show("slow");
+
+});
+
+$("#operation").click(function(event) {
+  /* Act on the event */
+  console.log("ok");
+  $(".operation").show("slow");
+  $(".train").hide("slow");
+
+});
+
+
+</script>
+</html>

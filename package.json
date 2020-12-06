@@ -1,0 +1,23 @@
+{
+  "name": "electron-face-api",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "electron ."
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@tensorflow/tfjs-node": "^1.7.0",
+    "@tensorflow/tfjs-node-gpu": "^2.7.0",
+    "canvas": "^2.6.1",
+    "electron": "^11.0.3",
+    "face-api.js": "^0.22.2",
+    "jquery": "^3.5.1"
+  },
+  "devDependencies": {
+    "electron-rebuild": "^2.3.4"
+  }
+}
