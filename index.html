@@ -75,7 +75,8 @@ let faceMatcher = null;
 
 function startVideo() {
 	const video = document.querySelector('video')
-  	navigator.getUserMedia({video: true, audio: false}, (localMediaStream) => {
+  	navigator.getUserMedia({video: { frameRate: { ideal: 5, max: 10 } }, audio: false}, (localMediaStream) => {
+        
         var video = document.querySelector('video')
         video.srcObject = localMediaStream
         video.autoplay = true
@@ -93,13 +94,13 @@ function startVideo() {
 	  faceapi.matchDimensions(canvas, displaySize)	
 
 	  setTimeout( async() => {
-	  		const detections = await faceapi.detectSingleFace(video).withFaceLandmarks().withFaceDescriptor();
+	  		const detections = await faceapi.detectSingleFace(video, new faceapi.TinyFaceDetectorOptions()).withFaceLandmarks().withFaceDescriptor();
 	    	const resizedDetections = faceapi.resizeResults(detections, displaySize)
         canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height)
         faceapi.draw.drawDetections(canvas, resizedDetections)
         
 		    this.labeledFaceDescriptors = await this.loadLabeledImages()
-		    const faceMatcher = new faceapi.FaceMatcher(labeledFaceDescriptors, 0.6)
+		    const faceMatcher = new faceapi.FaceMatcher(labeledFaceDescriptors, 0.8)
 		    if(detections){
           const results = faceMatcher.findBestMatch(detections.descriptor);
         
@@ -122,6 +123,16 @@ function startVideo() {
 }
 
 function deleteVideo(){
+  navigator.mediaDevices.getUserMedia({video: true, audio: false})
+  .then(mediaStream => {
+    const stream = mediaStream;
+    const tracks = stream.getTracks();
+     stream.getTracks().forEach(function(track) {
+        if (track.readyState == 'live' && track.kind === 'video') {
+            track.stop();
+        }
+    });
+  })
 	document.querySelector('canvas').remove();
 	document.querySelector('video').remove();
 
@@ -213,7 +224,10 @@ function loadLabeledImages() {
         for (let i = 1; i <= 3; i++) {
           const img = await faceapi.fetchImage(`faces/${label}/${i}.png`)
           const detections = await faceapi.detectSingleFace(img).withFaceLandmarks().withFaceDescriptor()
-          descriptions.push(detections.descriptor)
+          if(detections){
+
+            descriptions.push(detections.descriptor)
+          }
         }
         //console.log("Labeled Images Loaded")
         //console.log(descriptions);

@@ -28,9 +28,14 @@ app.on('ready',() => {
     })
 
     ipcMain.on('ok',(err,data) => {
+        if(data == "unknow"){
+          data = "Bilinmeyen Kullanıcı";
+        }else{
+          data = data + ' işleminiz alınmıştır'
+        }
         const notification = {
           title: 'Basic Notification',
-          body: data + ' işleminiz alınmıştır'
+          body: data
       }
       new Notification(notification).show()
     })
